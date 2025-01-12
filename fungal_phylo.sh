@@ -19,4 +19,4 @@ trim=${aln}.trim
 mafft --auto $fasta > $aln
 trimal -automated1 -in $aln -out $trim
 iqtree -s $1 -m MF
-#iqtree -s $1 -m K2P+R2 -bb 10000
+#iqtree -s $1 -m TIM2e+G4 -bb 10000
