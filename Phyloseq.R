@@ -13,6 +13,7 @@ pacman::p_load(phyloseq,
 BiodiversityR,
 tidyverse,
 plyr,
+geosphere,
 phylosmith,
 ggClusterNet,
 microbiome,
@@ -328,6 +329,40 @@ for(i in orders){
     filter(number_reads>0)
   
 }
+
+#Distance Decay####
+library(patchwork)
+library(vegan)
+
+#vegan object
+veg <- read.table("data/all_lungs_v2.txt", header = TRUE, sep = '\t') %>%
+  mutate(guid = paste0("S", guid))%>%
+  left_join(as.data.frame(physeq.r@otu_table)%>%rownames_to_column("guid"), by = "guid") %>%
+  drop_na()
+veg_meta <-veg[,1:13] #metadata columns
+veg_otus <-veg[,14:521] #otus
+veg_rel<-decostand(veg_otus, "total")
+
+# Spatial Diversity
+## Mantel test
+latlon <-data.frame(veg_meta$long, veg_meta$lat) #extract geographic coordinates
+spat<-distm(latlon) # create geographic distance matrix
+dismat<-vegan::vegdist(vegan::decostand(veg_otus, "total"), "bray")
+mc<-mantel.correlog(dismat, as.dist(spat, upper=FALSE, diag=FALSE),cutoff = FALSE)  #mantel correlogram
+plot(mc)
+mantel(dismat, as.dist(spat, upper=FALSE, diag=FALSE))
+#r=0.03357  p=0.156 not significant
+mc #describe stats
+###samples collected within 58 km tend to be more similar to each other
+
+## Distance decay
+plot(as.dist(spat,upper=FALSE, diag=FALSE), (1-dismat), xlab = "Distance (m)", ylab = "Bray-Curtis Similarity")
+mod<-lm(as.vector((1-dismat))~as.vector(as.dist(spat,upper=FALSE, diag=FALSE)))
+mod #y-int =6.264e-02 m = -2.981e-08  (very little slope)
+abline(mod, col="#b21f80", lwd=3)
+###very low decline in similarity of two samples as the distance between them increases 
+
+patchwork::mc + mod + plot_layout(nrow = 1)
 
 # Alpha Diversity #### 
 #NOTE according to function documentation this must be used with untrimmed data
@@ -1387,6 +1422,13 @@ alluv<-psmelt(physeq.MS)%>%
   mutate(family = if_else(OTU %in% cl.v, "Cryptococcus-like", family),
          family = factor(family, levels = c("Aspergillaceae","Saccharomycetales","Cryptococcus-like", "Ajellomycetaceae")))
 
+alluv%>%
+  ungroup()%>%
+  dplyr::select(family, OTU)%>%
+  group_by(family)%>%
+  distinct()%>%
+  dplyr::summarise(num_otu = n())
+
 lode_ord<-alluv%>%
   arrange(family)%>%
   ungroup()%>%
@@ -1447,7 +1489,8 @@ p
 ggsave(p, filename="figures/Prevelance_otus.pdf", width=3, height=7, device = cairo_pdf)
 
 #Animal symbiont composition plot
-anm.sym
+anm.sym <- read_csv("data/animal_symb_FUNGuild_v2.csv")%>%
+  dplyr::select(-c(1))
 
 p<-psmelt(physeq)%>%
   as.data.frame()%>%
@@ -1477,7 +1520,7 @@ p1<-p %>%
   # Set Sample as a factor with ordered levels
   mutate(Sample = factor(Sample, levels = unique(Sample))) %>%
   ggplot(aes(Sample, perc_anm_symb, fill = animal.trophic)) +
-  geom_col() +
+  geom_col(width=1) +
   theme(axis.text.x = element_blank()) +
   scale_fill_manual(values = c("darkturquoise", "dodgerblue", "grey53")) +
   labs(
@@ -1505,7 +1548,7 @@ p2<-p %>%
   # Set Sample as a factor with ordered levels
   mutate(Sample = factor(Sample, levels = unique(Sample))) %>%
   ggplot(aes(Sample, perc_anm_symb, fill = animal.trophic)) +
-  geom_col() +
+  geom_col(width=0.7) +
   theme(axis.text.x = element_blank()) +
   scale_fill_manual(values = c("darkturquoise", "dodgerblue", "grey53")) +
   labs(
