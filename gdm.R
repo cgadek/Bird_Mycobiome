@@ -30,7 +30,7 @@ seecol(list(h1, h2, h3, h4, h5),
        title = "Example palettes from hcl.colors(n = 10)", 
        pal_names = c("Dynamic", "Earth", "Berlin", "Fall",  "Sunset"))
 
-contr.col <- c(h2[6], h2[2], h1[3], h4[10], h2[9])
+contr.col <- c(h2[6], h2[2],h4[10], h1[3],  h2[9])
 
 extrafont::loadfonts()
 
@@ -156,7 +156,7 @@ job::job({
   }
   
   save(gdm.list, file = "data/gdm_Geo.RData")
-  #load(file = "data/gdm_noGeo.RData")
+  load(file = "data/gdm_Geo.RData")
   
   t <- do.call("rbind", gdm.list[[2]]) #bind splines for plotting
   
@@ -278,7 +278,7 @@ p<-varimp%>%
   geom_col(colour ="black")+
   geom_errorbar(aes(predictor, mean, ymin = mean-sd,
                                 ymax = mean+sd), width=0.3)+
-  scale_fill_manual(values = contr.col)+
+  scale_fill_manual(values = contr.col[-2])+
   labs(y = "Mean variable importance", x=NULL)+
   theme(legend.position = "none", 
         aspect.ratio = 1)
