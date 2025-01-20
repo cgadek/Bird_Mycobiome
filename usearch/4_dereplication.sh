@@ -11,5 +11,5 @@
 IFS=$'\t'
 
 while read sample R1 R2; do
-./usearch11 -fastx_uniques ${sample}_filt.fa -sizeout -relabel ${sample}_Uniq -fastaout ${sample}_uniques.fa
+./usearch11 -fastx_uniques ${sample}_filt.fa -sizeout -relabel ${sample}_uniq -fastaout ${sample}_uniques.fa
 done < sample_tab.txt
