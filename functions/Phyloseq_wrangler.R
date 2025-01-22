@@ -41,6 +41,10 @@ anm.sym <- read_csv("data/animal_symb_FUNGuild_v2.csv")%>%
 
 taxonomy <- read.table("data/zotus_tax_v4.txt", header = TRUE, sep = '\t', row.names = 1)
 
+#remove white space
+taxonomy <-taxonomy %>% 
+  mutate(across(where(is.character), str_trim))
+
 #get rid of taxa names and zotu with spaces
 taxonomy <- taxonomy%>%
   mutate( genus = gsub(" ", "", genus))%>%

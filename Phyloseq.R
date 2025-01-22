@@ -2,7 +2,7 @@
 # if(!requireNamespace("BiocManager")){
 #   install.packages("BiocManager")
 # }
-# BiocManager::install("phyloseq")
+#BiocManager::install("phyloseq")
 #devtools::install_github('schuyler-smith/phylosmith')
 #remotes::install_github("taowenmicro/ggClusterNet")
 #devtools::install_github("jfq3/QsRutils", build_vignettes = TRUE)
@@ -55,6 +55,9 @@ load("data/physeq_rarefied_merged_spp.Rdata")
 #read in processed sample data  and taxonomy file
 all_meta <- read_csv("data/Bird_predictors.csv")
 taxonomy <- read.table("data/zotus_tax_v3.txt", header = TRUE, sep = '\t', row.names = 1)
+#remove white space
+taxonomy <-taxonomy %>% 
+  mutate(across(where(is.character), str_trim))
 
 # Estimate sample coverage ####
 phyloseq_coverage(physeq, correct_singletons = FALSE, add_attr = T)%>%
@@ -108,6 +111,52 @@ taxa_names(physeq)
 rank_names(physeq)
 sample_variables(physeq)
 
+##Animal symbiont summary stats####
+
+anm.sym<-read_csv("data/animal_symb_FUNGuild_v2.csv")
+
+anm.sym%>%
+  dplyr::select(-c(1))%>%
+  filter(zotu %in% rownames(tax_table(physeq)))%>%
+  group_by(animal.trophic)%>%
+  dplyr::summarise(n =n()/526)
+
+
+anm.s<-psmelt(physeq)%>%
+  as.data.frame()%>%
+  dplyr::select(OTU,  sci_name, Sample, family, Abundance)%>%
+  #dplyr::rename(sci_name = Sample)%>%
+  left_join(anm.sym%>%dplyr::rename(OTU=zotu))%>%
+  filter(Abundance >0)%>%
+  group_by(Sample)%>%
+  dplyr::mutate(n_total = n())%>%
+  group_by(Sample, animal.trophic)%>%
+  mutate(n_trophic = n(),
+         perc_trophic = n_trophic/n_total)
+
+
+t.test(anm.s%>%filter(animal.trophic=="y")%>%pull(Abundance), anm.s%>%filter(animal.trophic=="n")%>%pull(Abundance))
+
+###Cranes
+
+psmelt(physeq)%>%
+  as.data.frame()%>%
+  filter(bird == "crane",
+         Abundance >0)%>%
+  dplyr::select(OTU,  sci_name, bird)%>%
+  left_join(anm.sym%>%dplyr::rename(OTU=zotu))%>%
+  distinct()%>%
+  group_by(sci_name)%>%
+  mutate(n_total=n())%>%
+  group_by(sci_name, animal.trophic)%>%
+  mutate(n_trophic =n(),
+         perc_trophic =n_trophic/n_total)%>%
+  dplyr::select(sci_name, perc_trophic)%>%
+  distinct()
+
+
+
+
 #Core microbiome####
 
 # Calculate compositional version of the data
@@ -116,11 +165,27 @@ pseq.rel <- microbiome::transform(physeq, "compositional")
 
 #calculate core microbiome fungi that wer present in >50% of samples and greater than 0.01 relative abundance
 
-pseq.core <- core(pseq.rel, detection = 0.5, prevalence = 0.01) #make phyloseq object
+pseq.core <- microbiome::core(pseq.rel, detection = 0.5, prevalence = 0.01) #make phyloseq object
 core.taxa <- taxa_names(pseq.core)
 core.taxa
 
+# Composition plot
+d<-psmelt(physeq)%>%
+  #filter(OTU %in% core.taxa)%>%
+  mutate(all_reads=sum(Abundance))%>%
+  group_by(family, all_reads)%>%
+  dplyr::summarise(reads.family = sum(Abundance),
+                   perc_family = reads.family/all_reads)%>%
+  filter(family !="")%>%
+  distinct()%>%
+  arrange(perc_family)
 
+ggplot(d, aes(x=all_reads, y=perc_family, fill=family))+
+  geom_bar(color="black", stat="identity", position="stack")+
+  labs(x=NULL, y="Percentage of core reads")+
+  theme(aspect.ratio = 1.5,
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())
 
 # Assess host-fungi specifics through summary stats####
 #Remove taxa not seen more than 3 times in at least 20% of the samples. This protects against an OTU with small mean & trivially large C.V.
@@ -343,11 +408,45 @@ veg_meta <-veg[,1:13] #metadata columns
 veg_otus <-veg[,14:521] #otus
 veg_rel<-decostand(veg_otus, "total")
 
+#non-cranes
+veg.nc <- read.table("data/all_lungs_v2.txt", header = TRUE, sep = '\t') %>%
+  mutate(guid = paste0("S", guid))%>%
+  filter(bird == "other")%>%
+  left_join(as.data.frame(physeq.r@otu_table)%>%rownames_to_column("guid"), by = "guid") %>%
+  drop_na()
+veg_meta.nc <-veg.nc[,1:13] #metadata columns
+veg_otus.nc <-veg.nc[,14:521] #otus
+veg_rel.nc<-decostand(veg_otus.nc, "total")
+
 # Spatial Diversity
 ## Mantel test
+### All birds
 latlon <-data.frame(veg_meta$long, veg_meta$lat) #extract geographic coordinates
 spat<-distm(latlon) # create geographic distance matrix
 dismat<-vegan::vegdist(vegan::decostand(veg_otus, "total"), "bray")
+mc<-mantel.correlog(dismat, as.dist(spat, upper=FALSE, diag=FALSE),cutoff = FALSE)  #mantel correlogram
+plot(mc)
+mantel(dismat, as.dist(spat, upper=FALSE, diag=FALSE))
+#r=0.03357  p=0.156 not significant
+mc #describe stats
+###samples collected within 58 km tend to be more similar to each other
+
+## Distance decay
+plot(as.dist(spat,upper=FALSE, diag=FALSE), (1-dismat), xlab = "Distance (m)", ylab = "Bray-Curtis Similarity")
+mod<-lm(as.vector((1-dismat))~as.vector(as.dist(spat,upper=FALSE, diag=FALSE)))
+mod #y-int =6.264e-02 m = -2.981e-08  (very little slope)
+abline(mod, col="#b21f80", lwd=3)
+###very low decline in similarity of two samples as the distance between them increases 
+
+patchwork::mc + mod + plot_layout(nrow = 1)
+
+
+# Spatial Diversity
+## Mantel test
+### Non-crane birds
+latlon <-data.frame(veg_meta.nc$long, veg_meta.nc$lat) #extract geographic coordinates
+spat<-distm(latlon) # create geographic distance matrix
+dismat<-vegan::vegdist(vegan::decostand(veg_otus.nc, "total"), "bray")
 mc<-mantel.correlog(dismat, as.dist(spat, upper=FALSE, diag=FALSE),cutoff = FALSE)  #mantel correlogram
 plot(mc)
 mantel(dismat, as.dist(spat, upper=FALSE, diag=FALSE))
@@ -1371,26 +1470,42 @@ p
 
 #with core mycobiome at family level
 pseq.core.family <- subset_taxa(pseq.core, family != "Other")
+subset_taxa()
 
-coot.f <-co_occurrence(conglomerate_taxa(pseq.core, "family"), treatment = NULL, method ="spearman", rho = 0, p = 1, cores = 1)
+
+core_subset <- subset_taxa(physeq, rownames(tax_table(physeq)) %in% core.taxa)
+
+
+pseq.core.family <- conglomerate_taxa(core_subset, "family")
+
+coot.f <-co_occurrence(pseq.core.family, treatment = NULL, method ="spearman", rho = 0, p = 1, cores = 1)
 coot.f
 write.csv(coot.f%>%dplyr::select(-Treatment), file="tables/co-occurrence_core_family.csv")
 
-co_occurrence_network(pseq.core, treatment = NULL, 
-                      classification = 'family')
+co_fam_net <-co_occurrence_network(pseq.core.family, treatment = NULL, 
+                      classification = 'family', co_occurrence_table = coot.f)
+
+co_fam_net
 
 pseq.anm.sym.rel <- microbiome::transform(anm.sym.physeq.r, "compositional")
+
 
 #calculate core microbiome fungi that wer present in >50% of samples and greater than 0.01 relative abundance
 
 pseq.anm.sym.core <- core(pseq.anm.sym.rel, detection = 0.5, prevalence = 0.01) #make phyloseq object
 
-coot.as <-co_occurrence(conglomerate_taxa(pseq.anm.sym.core, "family"), treatment = NULL, method ="spearman", rho = 0, p = 1, cores = 1)
+pseq.anm.sym.core <- subset_taxa(pseq.anm.sym.core, family != "Other")
+
+pseq.anm.sym.core <- conglomerate_taxa(pseq.anm.sym.core, "family")
+
+coot.as <-co_occurrence(pseq.anm.sym.core, treatment = NULL, method ="spearman", rho = 0, p = 1, cores = 1)
 coot.as
 write.csv(coot.as%>%dplyr::select(-Treatment), file="tables/co-occurrence_animal_symbiont.csv")
 
-co_occurrence_network(conglomerate_taxa(pseq.anm.sym.core, "family"), treatment = NULL, 
-                            classification = 'family')
+co_anm_sym_net <-co_occurrence_network(pseq.anm.sym.core, treatment = NULL, 
+                            classification = 'family', co_occurrence_table = coot.as)
+
+co_anm_sym_net
 
 
 ## Alluvial plot ####
@@ -1405,32 +1520,52 @@ cl.v <- read_csv("data/animal_symb_FUNGuild_v2.csv")%>%
 
 alluv<-psmelt(physeq.MS)%>%
   as.data.frame()%>%
-  dplyr::select(OTU,  Sample, family, Abundance)%>%
+  dplyr::select(OTU,  Sample, order, Abundance)%>%
   dplyr::rename(sci_name = Sample)%>%
-  left_join( taxonomy%>%rownames_to_column(var="OTU")%>%dplyr::select(OTU, family))%>%
+  left_join( taxonomy%>%rownames_to_column(var="OTU")%>%dplyr::select(OTU, order, family))%>%
   filter(sci_name %in% c("Antigone canadensis canadensis", "Antigone canadensis tabida"),
          Abundance >0)%>%
-  group_by(sci_name,family, OTU)%>%
-  mutate(n = n())%>%
+  group_by(sci_name, order,family, OTU)%>%
+  mutate(n = n(),
+         order = if_else(family %in%c("Aspergillaceae"), "Aspergillaceae",  order),
+         order = if_else(OTU %in% cl.v, "Cryptococcus-like", order))%>%
   ungroup()%>%
-  group_by(sci_name, family, OTU)%>%
+  group_by(sci_name, order, OTU)%>%
   summarise(Abundance = sum(Abundance),
             num_otu = sum(n))%>%
-  mutate(family = if_else(family %in%c("Saccharomycetaceae", "Debaryomycetaceae", "Metschnikowiaceae"), "Saccharomycetales",  family))%>%
   filter(sci_name %in% c("Antigone canadensis canadensis", "Antigone canadensis tabida"),
-         family %in% c("Ajellomycetaceae","Saccharomycetales", "Aspergillaceae" )|OTU %in% cl.v)%>%
-  mutate(family = if_else(OTU %in% cl.v, "Cryptococcus-like", family),
-         family = factor(family, levels = c("Aspergillaceae","Saccharomycetales","Cryptococcus-like", "Ajellomycetaceae")))
+         order %in% c("Onygenales","Saccharomycetales", "Aspergillaceae", "Cryptococcus-like")|OTU %in% cl.v)%>%
+  mutate(order = factor(order, levels = c("Aspergillaceae","Saccharomycetales","Cryptococcus-like", "Onygenales")))
+
+
+# alluv<-psmelt(physeq.MS)%>%
+#   as.data.frame()%>%
+#   dplyr::select(OTU,  Sample, order, Abundance)%>%
+#   dplyr::rename(sci_name = Sample)%>%
+#   left_join( taxonomy%>%rownames_to_column(var="OTU")%>%dplyr::select(OTU, family))%>%
+#   filter(sci_name %in% c("Antigone canadensis canadensis", "Antigone canadensis tabida"),
+#          Abundance >0)%>%
+#   group_by(sci_name,family, OTU)%>%
+#   mutate(n = n())%>%
+#   ungroup()%>%
+#   group_by(sci_name, family, OTU)%>%
+#   summarise(Abundance = sum(Abundance),
+#             num_otu = sum(n))%>%
+#   mutate(family = if_else(family %in%c("Saccharomycetaceae", "Debaryomycetaceae", "Metschnikowiaceae"), "Saccharomycetales",  family))%>%
+#   filter(sci_name %in% c("Antigone canadensis canadensis", "Antigone canadensis tabida"),
+#          family %in% c("Ajellomycetaceae","Saccharomycetales", "Aspergillaceae" )|OTU %in% cl.v)%>%
+#   mutate(family = if_else(OTU %in% cl.v, "Cryptococcus-like", family),
+#          family = factor(family, levels = c("Aspergillaceae","Saccharomycetales","Cryptococcus-like", "Ajellomycetaceae")))
 
 alluv%>%
   ungroup()%>%
-  dplyr::select(family, OTU)%>%
-  group_by(family)%>%
+  dplyr::select(order, OTU)%>%
+  group_by(order)%>%
   distinct()%>%
   dplyr::summarise(num_otu = n())
 
 lode_ord<-alluv%>%
-  arrange(family)%>%
+  arrange(order)%>%
   ungroup()%>%
   dplyr::select(OTU)%>%
   distinct(.)%>%
@@ -1439,9 +1574,9 @@ lode_ord<-alluv%>%
 # is_alluvia_form(as.data.frame(.), axes = 1:3, silent = TRUE)
 #attempt to reorder 
 l_ord <- alluv%>%
-  mutate(family = as.character(family))%>%
+  mutate(family = as.character(order))%>%
   arrange(OTU)%>%
-  arrange(family)%>%
+  arrange(order)%>%
   dplyr::select(OTU)%>%
   pull()
 
@@ -1462,27 +1597,28 @@ alluvial(alluv[,1:3], freq=alluv$num_otu,
 #Figure out distribution of select pathogenic taxa in crane samples i.e. what percentage of lessers and greaters had apsergillosus
 p<-psmelt(physeq)%>%
   as.data.frame()%>%
-  dplyr::select(OTU,  sci_name, Sample, family, Abundance)%>%
-  #dplyr::rename(sci_name = Sample)%>%
-  left_join( taxonomy%>%rownames_to_column(var="OTU")%>%dplyr::select(OTU, family))%>%
+  mutate(order = if_else(family %in%c("Aspergillaceae"), "Aspergillaceae",  order),
+         order = if_else(OTU %in% cl.v, "Cryptococcus-like", order))%>%
+  dplyr::select(OTU,  sci_name, order, Abundance)%>%
+  left_join( taxonomy%>%rownames_to_column(var="OTU")%>%dplyr::select(OTU, order, family))%>%
   filter(sci_name %in% c("Antigone canadensis canadensis", "Antigone canadensis tabida"),
          Abundance >0)%>%
+  group_by(sci_name)%>%
+  mutate(sum_zotu_per_crane_subsp = sum(Abundance))%>%
   ungroup()%>%
-  mutate(family = if_else(family %in%c("Saccharomycetaceae", "Debaryomycetaceae", "Metschnikowiaceae"), "Saccharomycetales",  family))%>%
-  filter(sci_name %in% c("Antigone canadensis canadensis", "Antigone canadensis tabida"),
-         family %in% c("Ajellomycetaceae","Saccharomycetales", "Aspergillaceae" )|OTU %in% cl.v)%>%
-  mutate(family = if_else(OTU %in% cl.v, "Cryptococcus-like", family),
-         family = factor(family, levels = c("Aspergillaceae","Saccharomycetales","Cryptococcus-like", "Ajellomycetaceae")))%>%
-  group_by(OTU, sci_name)%>%
-  dplyr::mutate(z_otu_per_subspeccies = n(),
-                perc_prev = if_else(sci_name =="Antigone canadensis canadensis", z_otu_per_subspeccies/22, z_otu_per_subspeccies/100))%>%
+  group_by(sci_name, order, OTU)%>%
+  dplyr::mutate(otu_reads_per_subspeccies = sum(Abundance),
+                perc_prev = otu_reads_per_subspeccies/sum_zotu_per_crane_subsp)%>%
+  filter(order %in% c("Onygenales","Saccharomycetales", "Aspergillaceae", "Cryptococcus-like")|OTU %in% cl.v)%>%
+  mutate(order = factor(order, levels = c("Aspergillaceae","Saccharomycetales","Cryptococcus-like", "Onygenales")))%>%
   ungroup()%>%
-  dplyr::select(OTU, sci_name, perc_prev, family)%>%
+  dplyr::select(OTU, sci_name, perc_prev, order)%>%
   distinct()%>%
   mutate(OTU = factor(OTU, levels = lode_ord))%>%
   ggplot(., aes(x = perc_prev, y=OTU,  fill = sci_name))+
-  geom_col(position = position_dodge(preserve = "single"))+
+  geom_col(position = position_dodge())+
   scale_fill_manual(values = c("#A51209", "#FFDB58"))+
+  scale_x_log10()+
   theme(legend.position = "none")
   
 p
@@ -1571,3 +1707,37 @@ ggplot(data, aes(Sample, perc_anm_symb, fill = animal.trophic)) +
     y = "Proportion",
     fill = "Animal Trophic"
   )
+
+
+p<-psmelt(physeq)%>%
+  as.data.frame()%>%
+  mutate(order = if_else(family %in%c("Aspergillaceae"), "Aspergillaceae",  order),
+         order = if_else(OTU %in% cl.v, "Cryptococcus-like", order))%>%
+  dplyr::select(OTU,  sci_name, order, Abundance)%>%
+  left_join( taxonomy%>%rownames_to_column(var="OTU")%>%dplyr::select(OTU, order, family))%>%
+  filter(sci_name %in% c("Antigone canadensis canadensis", "Antigone canadensis tabida"),
+         Abundance >0)%>%
+  group_by(sci_name, order)%>%
+  dplyr::summarise(sum_abun = sum(Abundance))  
+    
+    
+## Percent prevelance pathogen orders####
+psmelt(physeq)%>%
+  as.data.frame()%>%
+  mutate(order = if_else(family %in%c("Aspergillaceae"), "Aspergillaceae",  order),
+         order = if_else(OTU %in% cl.v, "Cryptococcus-like", order))%>%
+  dplyr::select(OTU,  sci_name, order, Abundance)%>%
+  left_join( taxonomy%>%rownames_to_column(var="OTU")%>%dplyr::select(OTU, order, family))%>%
+  filter(sci_name %in% c("Antigone canadensis canadensis", "Antigone canadensis tabida"),
+         Abundance >0)%>%
+  group_by(sci_name)%>%
+  mutate(sum_reads_per_crane_subsp = sum(Abundance))%>%
+  ungroup()%>%
+  group_by(sci_name, order)%>%
+  dplyr::mutate(order_reads_per_subspeccies = sum(Abundance),
+                perc_prev = order_reads_per_subspeccies/sum_reads_per_crane_subsp)%>%
+  filter(order %in% c("Onygenales","Saccharomycetales", "Aspergillaceae", "Cryptococcus-like")|OTU %in% cl.v)%>%
+  mutate(order = factor(order, levels = c("Aspergillaceae","Saccharomycetales","Cryptococcus-like", "Onygenales")))%>%
+  ungroup()%>%
+  dplyr::select(sci_name, perc_prev, order)%>%
+  distinct())
