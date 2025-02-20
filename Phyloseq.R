@@ -54,7 +54,7 @@ load("data/physeq_rarefied_merged_spp.Rdata")
 
 #read in processed sample data  and taxonomy file
 all_meta <- read_csv("data/Bird_predictors.csv")
-taxonomy <- read.table("data/zotus_tax_v3.txt", header = TRUE, sep = '\t', row.names = 1)
+taxonomy <- read.table("data/zotus_tax_v5.txt", header = TRUE, sep = '\t', row.names = 1)
 #remove white space
 taxonomy <-taxonomy %>% 
   mutate(across(where(is.character), str_trim))
@@ -1470,7 +1470,7 @@ p
 
 #with core mycobiome at family level
 pseq.core.family <- subset_taxa(pseq.core, family != "Other")
-subset_taxa()
+
 
 
 core_subset <- subset_taxa(physeq, rownames(tax_table(physeq)) %in% core.taxa)

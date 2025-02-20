@@ -39,7 +39,7 @@ class(motus) <- "numeric"
 anm.sym <- read_csv("data/animal_symb_FUNGuild_v2.csv")%>%
   dplyr::select(-c(1))
 
-taxonomy <- read.table("data/zotus_tax_v4.txt", header = TRUE, sep = '\t', row.names = 1)
+taxonomy <- read.table("data/zotus_tax_v5.txt", header = TRUE, sep = '\t', row.names = 1)
 
 #remove white space
 taxonomy <-taxonomy %>% 
