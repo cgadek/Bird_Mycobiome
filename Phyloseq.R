@@ -52,7 +52,7 @@ load("data/physeq_rarefied.Rdata")
 load("data/physeq_merged_spp.Rdata")
 load("data/physeq_rarefied_merged_spp.Rdata")
 
-#read in processed sample data  and taxonomy file
+#read in processed sample dataand taxonomy file
 all_meta <- read_csv("data/Bird_predictors.csv")
 taxonomy <- read.table("data/zotus_tax_v5.txt", header = TRUE, sep = '\t', row.names = 1)
 #remove white space
@@ -85,7 +85,7 @@ cbind(estimate_richness(physeq, measures=c('Observed', 'Chao1')), readcounts=sam
 #linear model to get significance stats, probably violating assumptions here
 summary(lm(Chao1 ~ readcounts, data = cbind(estimate_richness(physeq, measures=c('Observed', 'Chao1')), readcounts=sample_sums(physeq))))
 
-#extrapolated species richness appears to be sensitive to readcounts, but that's okay because using rarefied dataset to conduct community analyses
+#extrapolated species richness appears to be sensitive to readcounts, but that's okay because using rarefied dataset to conduct most community analyses
 
 #Get summary statistics on samples sizes ####
 all_meta%>%
@@ -496,14 +496,17 @@ er%>%
 p <-er%>%
   ggplot(aes(x=Order1, y= Chao1))+
   geom_boxplot(aes(), fill="grey")+
+  geom_point(alpha=0.5)+
   theme(axis.text.x = element_text(angle=45, vjust=1.1, hjust = 1, size=10),
         aspect.ratio = 0.7)+
   labs(x=NULL)
+p
 ggsave(p, file = "figures/Chao1_Order.pdf", width=5, height=3, device = cairo_pdf)
 
 p <-er%>%
   ggplot(aes(x=Order1, y= Shannon))+
   geom_boxplot(aes(), fill="grey")+
+  geom_point(alpha=0.5)+
   theme(axis.text.x = element_text(angle=45, vjust=1.1, hjust = 1, size=10),
         aspect.ratio = 0.7)+
   labs(x=NULL)
@@ -513,6 +516,7 @@ ggsave(p, file = "figures/Shannnon_Order.pdf", width=5, height=3, device = cairo
 p <-er%>%
   ggplot(aes(x=Order1, y= Observed))+
   geom_boxplot(aes(), fill="grey")+
+  geom_point(alpha=0.5)+
   theme(axis.text.x = element_text(angle=45, vjust=1.1, hjust = 1, size=10),
         aspect.ratio = 0.7)+
   labs(x=NULL)
@@ -522,6 +526,7 @@ ggsave(p, file = "figures/Observed_Order.pdf", width=5, height=3, device = cairo
 p <-er%>%
   ggplot(aes(x=Order1, y= InvSimpson))+
   geom_boxplot(aes(), fill="grey")+
+  geom_point(alpha=0.5)+
   theme(axis.text.x = element_text(angle=45, vjust=1.1, hjust = 1, size=10),
         aspect.ratio = 0.7)+
   labs(x=NULL)
